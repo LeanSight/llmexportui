@@ -18,8 +18,8 @@ A simple GUI application that allows you to select specific files and folders fo
 
 1. Clone this repository:
    ```
-   git clone https://github.com/yourusername/llm-export-tool.git
-   cd llm-export-tool
+   git clone https://github.com/LeanSight/llexportui
+   cd llexportui
    ```
 
 2. Install dependencies:
@@ -33,13 +33,13 @@ A simple GUI application that allows you to select specific files and folders fo
 ### Running the Application
 
 ```
-python llm_export_app.py
+python llmexportui.py
 ```
 
 You can also specify a folder to open automatically:
 
 ```
-python llm_export_app.py /path/to/folder
+python llmexportui.py /path/to/folder
 ```
 
 ### Basic Workflow
@@ -54,14 +54,9 @@ python llm_export_app.py /path/to/folder
 
 For a standard executable:
 ```
-python -m PyInstaller --onefile --windowed llm_export_app.py
+python -m PyInstaller --onefile --windowed llmexportui.py
 ```
 
-For better performance:
-```
-pip install nuitka
-python -m nuitka --standalone --windows-disable-console --enable-plugin=pyqt6 llm_export_app.py
-```
 
 ## Output Format
 
