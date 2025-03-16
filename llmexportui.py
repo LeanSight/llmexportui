@@ -1,15 +1,87 @@
 import os
 import sys
 import json
-import argparse  # Añadimos la importación de argparse
+import locale
+import argparse  # Nuevo import
 from typing import Set, Dict, List
 
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QFileDialog, QTreeView, QVBoxLayout, QHBoxLayout, 
     QWidget, QPushButton, QLineEdit, QLabel, QMenu, QMessageBox
 )
-from PyQt6.QtCore import Qt, QTimer  # Añadimos QTimer para abrir carpeta después del inicio
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QStandardItemModel, QStandardItem, QAction
+
+# Diccionarios de traducción
+TRANSLATIONS = {
+    'en': {
+        'app_title': 'LLM Export Tool',
+        'file_menu': 'File',
+        'open_folder': 'Open Folder',
+        'recent_folders': 'Recent Folders',
+        'exit': 'Exit',
+        'options_menu': 'Options',
+        'reset_selection': 'Reset Selection',
+        'filter_label': 'Filter:',
+        'filter_placeholder': 'Filter by extension (e.g.: *.py, *.md)',
+        'open_folder_button': 'Open Folder',
+        'reset_button': 'Reset Selection',
+        'export_button': 'Export',
+        'error': 'Error',
+        'success': 'Success',
+        'no_folder_open': 'No folder is open.',
+        'no_files_selected': 'No files selected for export.',
+        'save_as': 'Save as',
+        'export_success': 'File exported successfully to:',
+        'export_error': 'Error exporting:',
+        'language_menu': 'Language',
+        'english': 'English',
+        'spanish': 'Spanish',
+    },
+    'es': {
+        'app_title': 'Exportador para LLM',
+        'file_menu': 'Archivo',
+        'open_folder': 'Abrir Carpeta',
+        'recent_folders': 'Carpetas Recientes',
+        'exit': 'Salir',
+        'options_menu': 'Opciones',
+        'reset_selection': 'Reiniciar Selección',
+        'filter_label': 'Filtro:',
+        'filter_placeholder': 'Filtrar por extensión (ej: *.py, *.md)',
+        'open_folder_button': 'Abrir Carpeta',
+        'reset_button': 'Reiniciar Selección',
+        'export_button': 'Exportar',
+        'error': 'Error',
+        'success': 'Éxito',
+        'no_folder_open': 'No hay ninguna carpeta abierta.',
+        'no_files_selected': 'No hay archivos seleccionados para exportar.',
+        'save_as': 'Guardar como',
+        'export_success': 'Archivo exportado con éxito a:',
+        'export_error': 'Error al exportar:',
+        'language_menu': 'Idioma',
+        'english': 'Inglés',
+        'spanish': 'Español',
+    }
+}
+
+def get_system_language():
+    """Detecta el idioma del sistema operativo."""
+    try:
+        # Método actualizado para evitar la advertencia de deprecación
+        locale.setlocale(locale.LC_ALL, '')
+        lang_code = locale.getlocale()[0]
+        if lang_code and lang_code.startswith('es'):
+            return 'es'
+            
+        # Alternativa para sistemas donde getlocale() podría no funcionar
+        import os
+        env_lang = os.environ.get('LANG', '') or os.environ.get('LANGUAGE', '') or os.environ.get('LC_ALL', '')
+        if env_lang and env_lang.startswith('es'):
+            return 'es'
+    except Exception:
+        pass
+    return 'en'
+
 
 class LLMExportApp(QMainWindow):
     """Aplicación para exportar archivos en formato amigable para LLMs."""
@@ -24,6 +96,9 @@ class LLMExportApp(QMainWindow):
         self.selections = {}  # {carpeta: [archivos_seleccionados]}
         self.selected_paths = set()
         
+        # Idioma actual (desde sistema operativo por defecto)
+        self.current_language = get_system_language()
+        
         # Archivo de configuración en el directorio del usuario
         self.config_file = os.path.join(os.path.expanduser("~"), ".llm_export_config.json")
         
@@ -33,35 +108,61 @@ class LLMExportApp(QMainWindow):
         # Cargar configuración guardada
         self.load_config()
     
+    def _normalize_path(self, path):
+        """
+        Normaliza una ruta de archivo para asegurar consistencia en comparaciones.
+        Convierte todos los separadores a formato unificado.
+        """
+        # Normalizar a backslash (estilo Windows)
+        return path.replace('/', '\\')
+    
+    def tr(self, key):
+        """Traduce una clave al idioma actual."""
+        try:
+            return TRANSLATIONS[self.current_language][key]
+        except KeyError:
+            return key
+    
     def setup_ui(self):
         """Configura los elementos de la interfaz de usuario."""
         # Configuración de la ventana principal
-        self.setWindowTitle("LLM Export Tool")
+        self.setWindowTitle(self.tr('app_title'))
         self.setGeometry(100, 100, 800, 600)
         
         # === MENÚ PRINCIPAL ===
         menubar = self.menuBar()
         
         # Menú Archivo
-        file_menu = menubar.addMenu("Archivo")
+        file_menu = menubar.addMenu(self.tr('file_menu'))
         
-        open_action = QAction("Abrir carpeta", self)
+        open_action = QAction(self.tr('open_folder'), self)
         open_action.triggered.connect(self.open_folder_dialog)
         file_menu.addAction(open_action)
         
-        self.recent_menu = QMenu("Carpetas recientes", self)
+        self.recent_menu = QMenu(self.tr('recent_folders'), self)
         file_menu.addMenu(self.recent_menu)
         
-        exit_action = QAction("Salir", self)
+        exit_action = QAction(self.tr('exit'), self)
         exit_action.triggered.connect(self.close)
         file_menu.addAction(exit_action)
         
         # Menú Opciones
-        options_menu = menubar.addMenu("Opciones")
+        options_menu = menubar.addMenu(self.tr('options_menu'))
         
-        reset_action = QAction("Reiniciar selección", self)
+        reset_action = QAction(self.tr('reset_selection'), self)
         reset_action.triggered.connect(self.reset_selection)
         options_menu.addAction(reset_action)
+        
+        # Menú de idioma
+        language_menu = menubar.addMenu(self.tr('language_menu'))
+        
+        english_action = QAction(self.tr('english'), self)
+        english_action.triggered.connect(lambda: self.change_language('en'))
+        language_menu.addAction(english_action)
+        
+        spanish_action = QAction(self.tr('spanish'), self)
+        spanish_action.triggered.connect(lambda: self.change_language('es'))
+        language_menu.addAction(spanish_action)
         
         # === WIDGET CENTRAL ===
         central_widget = QWidget()
@@ -72,23 +173,23 @@ class LLMExportApp(QMainWindow):
         toolbar_layout = QHBoxLayout()
         
         # Filtro de extensiones
-        toolbar_layout.addWidget(QLabel("Filtro:"))
+        toolbar_layout.addWidget(QLabel(self.tr('filter_label')))
         
         self.filter_input = QLineEdit()
-        self.filter_input.setPlaceholderText("Filtrar por extensión (ej: *.py, *.md)")
+        self.filter_input.setPlaceholderText(self.tr('filter_placeholder'))
         self.filter_input.textChanged.connect(self.apply_filter)
         toolbar_layout.addWidget(self.filter_input)
         
         # Botones
-        open_button = QPushButton("Abrir Carpeta")
+        open_button = QPushButton(self.tr('open_folder_button'))
         open_button.clicked.connect(self.open_folder_dialog)
         toolbar_layout.addWidget(open_button)
         
-        reset_button = QPushButton("Reiniciar Selección")
+        reset_button = QPushButton(self.tr('reset_button'))
         reset_button.clicked.connect(self.reset_selection)
         toolbar_layout.addWidget(reset_button)
         
-        export_button = QPushButton("Exportar")
+        export_button = QPushButton(self.tr('export_button'))
         export_button.clicked.connect(self.export_selected)
         toolbar_layout.addWidget(export_button)
         
@@ -131,7 +232,7 @@ class LLMExportApp(QMainWindow):
             
             # Reconectar la señal
             self.tree_model.itemChanged.connect(self.handle_item_changed)
-
+    
     def _set_check_state_to_children(self, parent_item, state):
         """Establece el mismo estado de selección a todos los hijos."""
         for i in range(parent_item.rowCount()):
@@ -141,7 +242,7 @@ class LLMExportApp(QMainWindow):
             # Recursividad para los subhijos
             if child.hasChildren():
                 self._set_check_state_to_children(child, state)
-
+    
     def _add_path_and_children(self, parent_path, parent_item):
         """Añade la ruta del elemento y todos sus hijos al conjunto de seleccionados."""
         self.selected_paths.add(parent_path)
@@ -155,7 +256,7 @@ class LLMExportApp(QMainWindow):
             # Recursividad para los subhijos
             if child.hasChildren():
                 self._add_path_and_children(child_path, child)
-
+    
     def _remove_path_and_children(self, parent_path, parent_item):
         """Elimina la ruta del elemento y todos sus hijos del conjunto de seleccionados."""
         self.selected_paths.discard(parent_path)
@@ -170,6 +271,79 @@ class LLMExportApp(QMainWindow):
             if child.hasChildren():
                 self._remove_path_and_children(child_path, child)
     
+    def change_language(self, language):
+        """Cambia el idioma de la interfaz y guarda la preferencia."""
+        if language in TRANSLATIONS and language != self.current_language:
+            self.current_language = language
+            # Actualizar la interfaz
+            self.retranslate_ui()
+            # Guardar preferencia
+            self.save_config()
+    
+    def retranslate_ui(self):
+        """Actualiza todos los textos de la interfaz al idioma actual."""
+        # Título de ventana
+        self.setWindowTitle(self.tr('app_title'))
+        
+        # Actualizar menús
+        menubar = self.menuBar()
+        menubar.clear()
+        
+        # Recrea los menús con textos traducidos
+        file_menu = menubar.addMenu(self.tr('file_menu'))
+        
+        open_action = QAction(self.tr('open_folder'), self)
+        open_action.triggered.connect(self.open_folder_dialog)
+        file_menu.addAction(open_action)
+        
+        self.recent_menu = QMenu(self.tr('recent_folders'), self)
+        file_menu.addMenu(self.recent_menu)
+        self.update_recent_menu()
+        
+        exit_action = QAction(self.tr('exit'), self)
+        exit_action.triggered.connect(self.close)
+        file_menu.addAction(exit_action)
+        
+        options_menu = menubar.addMenu(self.tr('options_menu'))
+        
+        reset_action = QAction(self.tr('reset_selection'), self)
+        reset_action.triggered.connect(self.reset_selection)
+        options_menu.addAction(reset_action)
+        
+        language_menu = menubar.addMenu(self.tr('language_menu'))
+        
+        english_action = QAction(self.tr('english'), self)
+        english_action.triggered.connect(lambda: self.change_language('en'))
+        language_menu.addAction(english_action)
+        
+        spanish_action = QAction(self.tr('spanish'), self)
+        spanish_action.triggered.connect(lambda: self.change_language('es'))
+        language_menu.addAction(spanish_action)
+        
+        # Actualizar elementos de la barra de herramientas
+        toolbar_layout = self.centralWidget().layout().itemAt(0).layout()
+        
+        # Actualizar etiqueta de filtro
+        label_widget = toolbar_layout.itemAt(0).widget()
+        if isinstance(label_widget, QLabel):
+            label_widget.setText(self.tr('filter_label'))
+            
+        # Actualizar placeholder
+        self.filter_input.setPlaceholderText(self.tr('filter_placeholder'))
+        
+        # Actualizar botones
+        button_indices = [2, 3, 4]  # Índices de los botones en el layout
+        button_texts = [
+            self.tr('open_folder_button'),
+            self.tr('reset_button'),
+            self.tr('export_button')
+        ]
+        
+        for idx, text in zip(button_indices, button_texts):
+            button = toolbar_layout.itemAt(idx).widget()
+            if isinstance(button, QPushButton):
+                button.setText(text)
+    
     def load_config(self):
         """Carga la configuración guardada desde el archivo JSON."""
         try:
@@ -177,9 +351,41 @@ class LLMExportApp(QMainWindow):
                 with open(self.config_file, 'r') as f:
                     config = json.load(f)
                 
-                self.recent_folders = config.get('recent_folders', [])
+                # Normalizar rutas de carpetas recientes para eliminar duplicados
+                raw_recent_folders = config.get('recent_folders', [])
+                normalized_paths = {}
+                
+                # Eliminar duplicados manteniendo el orden y convirtiendo a rutas absolutas
+                for path in raw_recent_folders:
+                    try:
+                        # Convertir a ruta absoluta (si no lo es ya)
+                        abs_path = os.path.abspath(path)
+                        normalized_paths[self._normalize_path(abs_path)] = abs_path
+                    except Exception:
+                        # Si falla la conversión a ruta absoluta, ignorar esta entrada
+                        pass
+                
+                # Mantener solo las rutas originales absolutas, sin duplicados
+                self.recent_folders = list(normalized_paths.values())
+                
                 self.last_export_location = config.get('last_export_location', '')
-                self.selections = config.get('selections', {})
+                
+                # Convertir claves del diccionario selections a rutas absolutas
+                selections_orig = config.get('selections', {})
+                self.selections = {}
+                for path, selected in selections_orig.items():
+                    try:
+                        abs_path = os.path.abspath(path)
+                        self.selections[abs_path] = selected
+                    except Exception:
+                        # Si no se puede convertir, usar la ruta original
+                        self.selections[path] = selected
+                
+                # Cargar preferencia de idioma
+                language = config.get('language')
+                if language in TRANSLATIONS:
+                    self.current_language = language
+                    self.retranslate_ui()
                 
                 # Actualizar menú de carpetas recientes
                 self.update_recent_menu()
@@ -191,7 +397,8 @@ class LLMExportApp(QMainWindow):
         config = {
             'recent_folders': self.recent_folders,
             'last_export_location': self.last_export_location,
-            'selections': self.selections
+            'selections': self.selections,
+            'language': self.current_language  # Guardar el idioma
         }
         
         try:
@@ -217,23 +424,33 @@ class LLMExportApp(QMainWindow):
     
     def open_folder_dialog(self):
         """Muestra un diálogo para seleccionar una carpeta."""
-        folder = QFileDialog.getExistingDirectory(self, "Seleccionar Carpeta")
+        folder = QFileDialog.getExistingDirectory(self, self.tr('open_folder'))
         if folder:
             self.open_folder(folder)
     
     def open_folder(self, folder_path):
         """Abre una carpeta y muestra su contenido en el árbol."""
+        # Convertir a ruta absoluta
+        folder_path = os.path.abspath(folder_path)
+        
         if not os.path.isdir(folder_path):
-            QMessageBox.warning(self, "Error", f"La carpeta {folder_path} no existe.")
+            QMessageBox.warning(self, self.tr('error'), f"{folder_path} no existe.")
             return
         
-        # Actualizar carpeta actual
-        self.current_folder = folder_path
+        # Normalizar la ruta
+        normalized_path = self._normalize_path(folder_path)
         
-        # Añadir a carpetas recientes
-        if folder_path in self.recent_folders:
-            self.recent_folders.remove(folder_path)
-        self.recent_folders.insert(0, folder_path)
+        # Actualizar carpeta actual
+        self.current_folder = folder_path  # Mantener la ruta original para uso del sistema
+        
+        # Añadir a carpetas recientes con ruta normalizada
+        normalized_recent_folders = [self._normalize_path(path) for path in self.recent_folders]
+        if normalized_path in normalized_recent_folders:
+            # Eliminar la entrada existente (podría tener otro formato de separador)
+            index = normalized_recent_folders.index(normalized_path)
+            self.recent_folders.pop(index)
+        
+        self.recent_folders.insert(0, folder_path)  # Guardar la ruta original
         self.recent_folders = self.recent_folders[:10]  # Limitar a 10 carpetas
         self.update_recent_menu()
         
@@ -250,7 +467,7 @@ class LLMExportApp(QMainWindow):
         self.populate_tree(folder_path)
         
         # Actualizar título de la ventana
-        self.setWindowTitle(f"LLM Export Tool - {folder_path}")
+        self.setWindowTitle(f"{self.tr('app_title')} - {folder_path}")
         
         # Guardar configuración
         self.save_config()
@@ -261,8 +478,6 @@ class LLMExportApp(QMainWindow):
         
         # Añadir elementos recursivamente
         self._add_directory(root_item, folder_path, "")
-        
-
     
     def _add_directory(self, parent_item, dir_path, rel_path):
         """Añade recursivamente los elementos de un directorio al árbol."""
@@ -392,11 +607,11 @@ class LLMExportApp(QMainWindow):
     def export_selected(self):
         """Exporta los archivos seleccionados en formato LLM-friendly."""
         if not self.current_folder:
-            QMessageBox.warning(self, "Error", "No hay ninguna carpeta abierta.")
+            QMessageBox.warning(self, self.tr('error'), self.tr('no_folder_open'))
             return
         
         if not self.selected_paths:
-            QMessageBox.warning(self, "Error", "No hay archivos seleccionados para exportar.")
+            QMessageBox.warning(self, self.tr('error'), self.tr('no_files_selected'))
             return
         
         # Diálogo para guardar archivo
@@ -404,7 +619,7 @@ class LLMExportApp(QMainWindow):
         folder_name = os.path.basename(self.current_folder)
         file_path, _ = QFileDialog.getSaveFileName(
             self, 
-            "Guardar como", 
+            self.tr('save_as'), 
             os.path.join(initial_path, f"{folder_name}_export.txt"), 
             "Archivos de texto (*.txt)"
         )
@@ -421,9 +636,11 @@ class LLMExportApp(QMainWindow):
             content = self.generate_export_content()
             with open(file_path, 'w', encoding='utf-8') as f:
                 f.write(content)
-            QMessageBox.information(self, "Éxito", f"Archivo exportado con éxito a:\n{file_path}")
+            QMessageBox.information(self, self.tr('success'), 
+                                    f"{self.tr('export_success')}\n{file_path}")
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Error al exportar: {e}")
+            QMessageBox.critical(self, self.tr('error'), 
+                                f"{self.tr('export_error')} {e}")
     
     def generate_export_content(self):
         """Genera el contenido exportado en formato LLM-friendly."""
@@ -535,19 +752,18 @@ class LLMExportApp(QMainWindow):
         event.accept()
 
 if __name__ == "__main__":
-    # Configurar el parser de argumentos
+    # Procesar argumentos personalizados
     parser = argparse.ArgumentParser(description='LLM Export Tool')
-    parser.add_argument('folder', nargs='?', default=None, 
-                        help='Carpeta a abrir automáticamente')
-    args = parser.parse_args()
+    parser.add_argument('folder', nargs='?', help='Carpeta inicial para abrir automáticamente')
+    args, remaining_args = parser.parse_known_args()
     
-    app = QApplication(sys.argv)
+    # Inicializar la aplicación Qt con los argumentos restantes
+    app = QApplication(remaining_args)
     window = LLMExportApp()
     window.show()
     
-    # Si se proporcionó una carpeta vía argumento, abrirla después de iniciar la aplicación
-    if args.folder:
-        # Usar QTimer para asegurar que la ventana esté completamente inicializada
-        QTimer.singleShot(100, lambda: window.open_folder(os.path.abspath(args.folder)))
+    # Si se proporcionó una carpeta inicial, abrirla
+    if args.folder and os.path.isdir(args.folder):
+        window.open_folder(args.folder)
     
     sys.exit(app.exec())
