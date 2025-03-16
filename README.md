@@ -18,7 +18,7 @@ A simple GUI application that allows you to select specific files and folders fo
 
 1. Clone this repository:
    ```
-   git clone https://github.com/LeanSight/llexportui
+   git clone https://github.com/LeanSight/llmexportui
    cd llexportui
    ```
 
