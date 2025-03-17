@@ -1,0 +1,1 @@
+python -m nuitka --plugin-enable=pyqt6 --standalone --windows-console-mode=disable  llmexportui.py

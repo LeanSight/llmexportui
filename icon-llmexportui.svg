@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Background -->
+  <rect width="512" height="512" rx="64" fill="#f5f5f5"/>
+  
+  <!-- Folder -->
+  <path d="M96 128 L160 128 L192 96 L384 96 L384 128 L416 128 L416 416 L96 416 Z" fill="#4285F4" stroke="#2965C4" stroke-width="8"/>
+  <path d="M96 128 L416 128 L416 416 L96 416 Z" fill="#64A0FF" stroke="#2965C4" stroke-width="8"/>
+  
+  <!-- Document icons inside folder -->
+  <rect x="128" y="176" width="80" height="96" rx="8" fill="#FFFFFF" stroke="#333333" stroke-width="4"/>
+  <line x1="144" y1="200" x2="192" y2="200" stroke="#333333" stroke-width="4"/>
+  <line x1="144" y1="220" x2="192" y2="220" stroke="#333333" stroke-width="4"/>
+  <line x1="144" y1="240" x2="176" y2="240" stroke="#333333" stroke-width="4"/>
+  
+  <rect x="216" y="176" width="80" height="96" rx="8" fill="#FFFFFF" stroke="#333333" stroke-width="4"/>
+  <line x1="232" y1="200" x2="280" y2="200" stroke="#333333" stroke-width="4"/>
+  <line x1="232" y1="220" x2="280" y2="220" stroke="#333333" stroke-width="4"/>
+  <line x1="232" y1="240" x2="264" y2="240" stroke="#333333" stroke-width="4"/>
+  
+  <rect x="304" y="176" width="80" height="96" rx="8" fill="#FFFFFF" stroke="#333333" stroke-width="4"/>
+  <line x1="320" y1="200" x2="368" y2="200" stroke="#333333" stroke-width="4"/>
+  <line x1="320" y1="220" x2="368" y2="220" stroke="#333333" stroke-width="4"/>
+  <line x1="320" y1="240" x2="352" y2="240" stroke="#333333" stroke-width="4"/>
+  
+  <!-- Export arrow -->
+  <path d="M256 288 L256 384 L160 384 L256 464 L352 384 L256 384" fill="#34A853" stroke="#0F8B3E" stroke-width="8" stroke-linejoin="round"/>
+  
+  <!-- LLM text chat bubble -->
+  <ellipse cx="410" cy="100" rx="60" ry="60" fill="#FF5252" stroke="#D32F2F" stroke-width="6"/>
+  <text x="410" y="110" font-family="Arial, sans-serif" font-weight="bold" font-size="32" text-anchor="middle" fill="white">LLM</text>
+</svg>
