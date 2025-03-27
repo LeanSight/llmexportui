@@ -473,11 +473,29 @@ class LLMExportApp(QMainWindow):
         self.save_config()
     
     def populate_tree(self, folder_path):
-        """Puebla el árbol con el contenido de la carpeta."""
+        """Puebla el árbol con el contenido de la carpeta, mostrando la carpeta base como nodo raíz."""
         root_item = self.tree_model.invisibleRootItem()
         
-        # Añadir elementos recursivamente
-        self._add_directory(root_item, folder_path, "")
+        # Crear el nodo para la carpeta base
+        base_name = os.path.basename(folder_path)
+        base_item = QStandardItem(base_name)
+        base_item.setData("", Qt.ItemDataRole.UserRole)  # Ruta relativa vacía para el nodo raíz
+        base_item.setCheckable(True)
+        
+        # Verificar si el nodo raíz estaba seleccionado previamente
+        if "" in self.selected_paths:
+            base_item.setCheckState(Qt.CheckState.Checked)
+        else:
+            base_item.setCheckState(Qt.CheckState.Unchecked)
+        
+        # Añadir el nodo raíz al árbol
+        root_item.appendRow(base_item)
+        
+        # Añadir elementos recursivamente a partir del nodo raíz
+        self._add_directory(base_item, folder_path, "")
+        
+        # Expandir el nodo raíz para mostrar su contenido inmediatamente
+        self.tree_view.expand(self.tree_model.indexFromItem(base_item))
     
     def _add_directory(self, parent_item, dir_path, rel_path):
         """Añade recursivamente los elementos de un directorio al árbol."""
