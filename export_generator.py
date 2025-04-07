@@ -49,7 +49,7 @@ def _generate_directory_structure(base_folder: str, selected_paths: Set[str]) ->
     paths_by_level = {}
     for path in sorted(selected_paths):
         parts = path.split(os.sep)
-        level = len(parts) - 1
+        level = len(parts)
         
         if level not in paths_by_level:
             paths_by_level[level] = []
@@ -57,7 +57,7 @@ def _generate_directory_structure(base_folder: str, selected_paths: Set[str]) ->
         paths_by_level[level].append(path)
     
     # Construir árbol de forma iterativa por niveles
-    _build_tree_structure(lines, paths_by_level, base_folder, "", 1)
+    _build_tree_structure(lines, paths_by_level, base_folder, "", 1, "    ")
     
     return "\n".join(lines)
 
@@ -67,7 +67,8 @@ def _build_tree_structure(
     paths_by_level: Dict[int, List[str]], 
     base_folder: str, 
     parent_path: str, 
-    level: int
+    level: int,
+    prefix: str = ""
 ) -> None:
     """
     Construye la estructura de árbol recursivamente
@@ -78,6 +79,7 @@ def _build_tree_structure(
         base_folder: Carpeta base para resolución de rutas
         parent_path: Ruta padre actual
         level: Nivel actual en la jerarquía
+        prefix: Prefijo para la indentación actual
     """
     if level not in paths_by_level:
         return
@@ -85,8 +87,14 @@ def _build_tree_structure(
     # Filtrar elementos en este nivel que pertenecen al padre actual
     current_level_items = []
     for path in paths_by_level[level]:
-        if not parent_path or path.startswith(parent_path + os.sep):
+        # Verificar si este elemento pertenece directamente al padre actual
+        path_parent = os.path.dirname(path)
+        if path_parent == parent_path:
             current_level_items.append(path)
+    
+    # Si no hay elementos en este nivel para este padre, salir
+    if not current_level_items:
+        return
     
     # Ordenar: primero carpetas, luego archivos
     current_level_items.sort(key=lambda p: (
@@ -101,9 +109,9 @@ def _build_tree_structure(
     for i, item in enumerate(current_level_items):
         is_last = i == last_idx
         
-        # Calcular prefijo según profundidad y posición
-        prefix = "    " * (level - 1)
-        prefix += "└── " if is_last else "├── "
+        # Construir prefijo para este elemento
+        item_prefix = prefix
+        item_prefix += "└── " if is_last else "├── "
         
         # Nombre base del elemento
         item_name = os.path.basename(item)
@@ -113,18 +121,18 @@ def _build_tree_structure(
         
         # Añadir a la salida
         if is_dir:
-            lines.append(f"{prefix}{item_name}/")
+            lines.append(f"{item_prefix}{item_name}/")
         else:
-            lines.append(f"{prefix}{item_name}")
+            lines.append(f"{item_prefix}{item_name}")
         
         # Recursión para subdirectorios
         if is_dir:
             # Prefijo para los hijos
-            next_prefix = "    " * level
-            next_prefix += "    " if is_last else "│   "
+            child_prefix = prefix
+            child_prefix += "    " if is_last else "│   "
             
-            # Procesar nivel siguiente
-            _build_tree_structure(lines, paths_by_level, base_folder, item, level + 1)
+            # Procesar nivel siguiente para este directorio
+            _build_tree_structure(lines, paths_by_level, base_folder, item, level + 1, child_prefix)
 
 
 def _generate_file_contents(base_folder: str, selected_paths: Set[str]) -> str:
