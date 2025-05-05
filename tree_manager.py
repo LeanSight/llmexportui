@@ -76,9 +76,11 @@ class TreeManager:
         base_item.setData("", Qt.ItemDataRole.UserRole)  # Ruta relativa vacía para el nodo raíz
         base_item.setCheckable(True)
         
-        # Verificar si el nodo raíz estaba seleccionado previamente
+        # Verificar si el nodo raíz estaba seleccionado o parcialmente seleccionado
         if "" in self.selected_paths:
             base_item.setCheckState(Qt.CheckState.Checked)
+        elif self._has_selected_descendants(""):
+            base_item.setCheckState(Qt.CheckState.PartiallyChecked)
         else:
             base_item.setCheckState(Qt.CheckState.Unchecked)
         
@@ -87,6 +89,29 @@ class TreeManager:
         
         # Añadir elementos recursivamente a partir del nodo raíz
         self._add_directory(base_item, self.base_path, "")
+    
+    def _has_selected_descendants(self, rel_path: str) -> bool:
+        """
+        Verifica si una ruta tiene descendientes seleccionados
+        
+        Args:
+            rel_path: Ruta relativa a verificar
+            
+        Returns:
+            bool: True si algún descendiente está seleccionado
+        """
+        # Normalizar separadores
+        norm_rel_path = normalize_path(rel_path)
+        norm_rel_path_with_sep = norm_rel_path + os.sep if norm_rel_path else ""
+        
+        # Buscar en las rutas seleccionadas
+        for selected_path in self.selected_paths:
+            norm_selected = normalize_path(selected_path)
+            # Comprobar si esta ruta seleccionada es descendiente de la ruta actual
+            if norm_selected.startswith(norm_rel_path_with_sep):
+                return True
+        
+        return False
     
     def _add_directory(self, parent_item: QStandardItem, dir_path: str, rel_path: str) -> None:
         """
@@ -127,9 +152,11 @@ class TreeManager:
                 tree_item.setData(item_rel_path, Qt.ItemDataRole.UserRole)  # Guardar ruta relativa
                 tree_item.setCheckable(True)
                 
-                # Verificar si estaba seleccionado previamente
+                # Verificar estado de selección
                 if item_rel_path in self.selected_paths:
                     tree_item.setCheckState(Qt.CheckState.Checked)
+                elif os.path.isdir(full_path) and self._has_selected_descendants(item_rel_path):
+                    tree_item.setCheckState(Qt.CheckState.PartiallyChecked)
                 else:
                     tree_item.setCheckState(Qt.CheckState.Unchecked)
                 
@@ -234,6 +261,45 @@ class TreeManager:
         
         return matches
     
+    def _update_parent_check_state(self, item: QStandardItem) -> None:
+        """
+        Actualiza el estado de casilla de verificación del padre basado en sus hijos
+        
+        Args:
+            item: Elemento cuyo padre debe actualizarse
+        """
+        # Obtener el padre del elemento
+        parent = item.parent()
+        if not parent:
+            return  # No hay padre que actualizar
+        
+        # Contar estados de los hijos
+        total_children = parent.rowCount()
+        checked_children = 0
+        
+        for i in range(total_children):
+            child = parent.child(i)
+            if child.checkState() == Qt.CheckState.Checked:
+                checked_children += 1
+            elif child.checkState() == Qt.CheckState.PartiallyChecked:
+                # Si hay al menos un hijo parcialmente seleccionado,
+                # el padre también debe estarlo
+                parent.setCheckState(Qt.CheckState.PartiallyChecked)
+                # Continuar actualizando hacia arriba
+                self._update_parent_check_state(parent)
+                return
+        
+        # Establecer estado del padre según hijos completamente seleccionados
+        if checked_children == 0:
+            parent.setCheckState(Qt.CheckState.Unchecked)
+        elif checked_children == total_children:
+            parent.setCheckState(Qt.CheckState.Checked)
+        else:
+            parent.setCheckState(Qt.CheckState.PartiallyChecked)
+        
+        # Recursión para actualizar abuelos si es necesario
+        self._update_parent_check_state(parent)
+    
     def handle_item_changed(self, item: QStandardItem) -> None:
         """
         Maneja los cambios en los checkboxes de los elementos
@@ -257,6 +323,9 @@ class TreeManager:
             self._add_path_and_children(path, item)
         else:
             self._remove_path_and_children(path, item)
+        
+        # Actualizar el estado del padre
+        self._update_parent_check_state(item)
     
     def _set_check_state_to_children(self, parent_item: QStandardItem, state: Qt.CheckState) -> None:
         """
