@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 from typing import Set, Dict, List, Any, Optional
 
 from PyQt6.QtWidgets import (
@@ -338,6 +339,20 @@ class LLMExportApp(QMainWindow):
         self.config_manager.save_selection(self.tree_manager.get_selected_paths())
         self.update_status_bar()
     
+    def _generate_suggested_export_filename(self) -> str:
+        """Genera un nombre de archivo sugerido para la exportación, incluyendo timestamp."""
+        initial_path = self.config_manager.last_export_location or os.path.expanduser("~")
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+        
+        if self.config_manager.current_folder:
+            folder_name = os.path.basename(self.config_manager.current_folder)
+            suggested_name = f"{folder_name}_export_{timestamp}.txt"
+        else:
+            # Fallback si no hay carpeta actual (aunque no debería pasar en export_selected)
+            suggested_name = f"export_{timestamp}.txt"
+            
+        return os.path.join(initial_path, suggested_name)
+
     def export_selected(self):
         """Exporta los archivos seleccionados en formato LLM-friendly."""
         if not self.config_manager.current_folder:
@@ -349,13 +364,12 @@ class LLMExportApp(QMainWindow):
             QMessageBox.warning(self, self.tr('error'), self.tr('no_files_selected'))
             return
         
-        # Diálogo para guardar archivo
-        initial_path = self.config_manager.last_export_location or os.path.expanduser("~")
-        folder_name = os.path.basename(self.config_manager.current_folder)
+        # Generar nombre sugerido y mostrar diálogo para guardar archivo
+        suggested_filename = self._generate_suggested_export_filename()
         file_path, _ = QFileDialog.getSaveFileName(
             self, 
             self.tr('save_as'), 
-            os.path.join(initial_path, f"{folder_name}_export.txt"), 
+            suggested_filename,
             "Archivos de texto (*.txt)"
         )
         
