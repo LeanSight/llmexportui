@@ -1,417 +1,210 @@
+from __future__ import annotations
+
 import os
-from typing import Set, Dict, List, Callable, Any, Optional
+from pathlib import Path
+from typing import Callable, Optional, Set
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QStandardItemModel, QStandardItem
+from PyQt6.QtGui import QStandardItem, QStandardItemModel
 
 from path_utils import normalize_path
 
+__all__ = ["TreeManager"]
+
+
 class TreeManager:
-    """
-    Administrador del árbol de archivos
-    """
-    
-    def __init__(self, tree_model: QStandardItemModel):
-        """
-        Inicializa un nuevo administrador de árbol
-        
-        Args:
-            tree_model: Modelo de árbol de Qt
-        """
-        self.tree_model = tree_model
-        self.base_path = ""
-        self.selected_paths = set()
-        self.is_visible_fn = None  # Función para determinar visibilidad
-    
-    def set_visibility_function(self, is_visible_fn: Callable[[str], bool]) -> None:
-        """
-        Establece la función para determinar visibilidad de elementos
-        
-        Args:
-            is_visible_fn: Función que toma una ruta y devuelve True si es visible
-        """
-        self.is_visible_fn = is_visible_fn
-    
-    def set_base_path(self, path: str) -> None:
-        """
-        Establece la ruta base del árbol
-        
-        Args:
-            path: Ruta base para el árbol
-        """
-        self.base_path = path
-    
+    """Administra el árbol de archivos y la lógica de selección."""
+
+    # ---------------------------------------------------------------------
+    # INITIALISATION
+    # ---------------------------------------------------------------------
+    def __init__(self, tree_model: QStandardItemModel) -> None:
+        self._model: QStandardItemModel = tree_model
+        self._base_path: Path | None = None
+        self._selected_paths: Set[str] = set()
+        self._is_visible: Optional[Callable[[str], bool]] = None
+
+    # ------------------------------------------------------------------
+    # PUBLIC CONFIGURATION API
+    # ------------------------------------------------------------------
+    def set_visibility_function(self, fn: Callable[[str], bool]) -> None:
+        """Registra la función que decide si un nodo es visible."""
+        self._is_visible = fn
+
+    def set_base_path(self, path: str | os.PathLike[str]) -> None:
+        """Define la carpeta raíz y purga selecciones inexistentes."""
+        self._base_path = Path(path).resolve()
+        self._prune_nonexistent_selections()
+
     def set_selected_paths(self, paths: Set[str]) -> None:
-        """
-        Establece el conjunto de rutas seleccionadas
-        
-        Args:
-            paths: Conjunto de rutas seleccionadas
-        """
-        self.selected_paths = paths
-    
+        """Carga la selección previamente almacenada (sin validar)."""
+        self._selected_paths = set(paths)
+
+    # ------------------------------------------------------------------
+    # PUBLIC QUERIES
+    # ------------------------------------------------------------------
     def get_selected_paths(self) -> Set[str]:
-        """
-        Obtiene el conjunto de rutas seleccionadas
-        
-        Returns:
-            Conjunto de rutas seleccionadas
-        """
-        return self.selected_paths
-    
+        """Devuelve las rutas actualmente seleccionadas (relativas)."""
+        return set(self._selected_paths)
+
+    # ------------------------------------------------------------------
+    # TREE BUILDING ------------------------------------------------------
+    # ------------------------------------------------------------------
     def populate_tree(self) -> None:
-        """Puebla el árbol con el contenido de la carpeta base"""
-        # Limpiar árbol
-        self.tree_model.clear()
-        self.tree_model.setHorizontalHeaderLabels(["Nombre"])
-        
-        if not self.base_path:
+        """Reconstruye el modelo en memoria a partir del disco."""
+        self._model.clear()
+        self._model.setHorizontalHeaderLabels(["Nombre"])
+
+        if self._base_path is None:
             return
-        
-        root_item = self.tree_model.invisibleRootItem()
-        
-        # Crear el nodo para la carpeta base
-        base_name = os.path.basename(self.base_path)
-        base_item = QStandardItem(base_name)
-        base_item.setData("", Qt.ItemDataRole.UserRole)  # Ruta relativa vacía para el nodo raíz
+
+        # Asegurar que la selección esté saneada antes de dibujar.
+        self._prune_nonexistent_selections()
+
+        root_item = self._model.invisibleRootItem()
+        base_item = QStandardItem(self._base_path.name)
+        base_item.setData("", Qt.ItemDataRole.UserRole)
         base_item.setCheckable(True)
-        
-        # Verificar si el nodo raíz estaba seleccionado o parcialmente seleccionado
-        if "" in self.selected_paths:
-            base_item.setCheckState(Qt.CheckState.Checked)
-        elif self._has_selected_descendants(""):
-            base_item.setCheckState(Qt.CheckState.PartiallyChecked)
-        else:
-            base_item.setCheckState(Qt.CheckState.Unchecked)
-        
-        # Añadir el nodo raíz al árbol
+        base_item.setCheckState(self._initial_state_for(""))
         root_item.appendRow(base_item)
-        
-        # Añadir elementos recursivamente a partir del nodo raíz
-        self._add_directory(base_item, self.base_path, "")
-    
-    def _has_selected_descendants(self, rel_path: str) -> bool:
-        """
-        Verifica si una ruta tiene descendientes seleccionados
-        
-        Args:
-            rel_path: Ruta relativa a verificar
-            
-        Returns:
-            bool: True si algún descendiente está seleccionado
-        """
-        # Normalizar separadores
-        norm_rel_path = normalize_path(rel_path)
-        norm_rel_path_with_sep = norm_rel_path + os.sep if norm_rel_path else ""
-        
-        # Buscar en las rutas seleccionadas
-        for selected_path in self.selected_paths:
-            norm_selected = normalize_path(selected_path)
-            # Comprobar si esta ruta seleccionada es descendiente de la ruta actual
-            if norm_selected.startswith(norm_rel_path_with_sep):
-                return True
-        
-        return False
-    
-    def _add_directory(self, parent_item: QStandardItem, dir_path: str, rel_path: str) -> None:
-        """
-        Añade recursivamente los elementos de un directorio al árbol
-        
-        Args:
-            parent_item: Item padre en el árbol
-            dir_path: Ruta completa del directorio
-            rel_path: Ruta relativa a la base
-        """
-        try:
-            # Ordenar: primero archivos, luego carpetas (por nombre)
-            items = sorted(os.listdir(dir_path), key=lambda x: (
-                not os.path.isdir(os.path.join(dir_path, x)), x.lower()
-            ))
-            
-            for item_name in items:
-                # Construir rutas
-                full_path = os.path.join(dir_path, item_name)
-                item_rel_path = os.path.join(rel_path, item_name) if rel_path else item_name
-                
-                # Verificar visibilidad según filtro
-                visible = True
-                if self.is_visible_fn:
-                    visible = self.is_visible_fn(item_rel_path)
-                
-                # Verificar si algún hijo debe ser visible
-                has_visible_children = False
-                if os.path.isdir(full_path) and not visible:
-                    has_visible_children = self._check_children_visibility(full_path, item_rel_path)
-                
-                # Si ni este ni sus hijos son visibles, omitir
-                if not visible and not has_visible_children:
-                    continue
-                
-                # Crear elemento en el árbol
-                tree_item = QStandardItem(item_name)
-                tree_item.setData(item_rel_path, Qt.ItemDataRole.UserRole)  # Guardar ruta relativa
-                tree_item.setCheckable(True)
-                
-                # Verificar estado de selección
-                if item_rel_path in self.selected_paths:
-                    tree_item.setCheckState(Qt.CheckState.Checked)
-                elif os.path.isdir(full_path) and self._has_selected_descendants(item_rel_path):
-                    tree_item.setCheckState(Qt.CheckState.PartiallyChecked)
-                else:
-                    tree_item.setCheckState(Qt.CheckState.Unchecked)
-                
-                # Añadir al padre
-                parent_item.appendRow(tree_item)
-                
-                # Si es un directorio, procesar recursivamente
-                if os.path.isdir(full_path):
-                    self._add_directory(tree_item, full_path, item_rel_path)
-        except PermissionError:
-            # Ignorar directorios sin permiso de acceso
-            pass
-    
-    def _check_children_visibility(self, dir_path: str, rel_path: str) -> bool:
-        """
-        Verifica recursivamente si algún hijo debe ser visible
-        
-        Args:
-            dir_path: Ruta completa del directorio
-            rel_path: Ruta relativa a la base
-            
-        Returns:
-            bool: True si algún hijo debe ser visible
-        """
-        try:
-            for item in os.listdir(dir_path):
-                item_rel_path = os.path.join(rel_path, item)
-                full_path = os.path.join(dir_path, item)
-                
-                # Verificar visibilidad según filtro
-                if self.is_visible_fn and self.is_visible_fn(item_rel_path):
-                    return True
-                
-                # Si es directorio, verificar recursivamente
-                if os.path.isdir(full_path):
-                    if self._check_children_visibility(full_path, item_rel_path):
-                        return True
-        except (PermissionError, FileNotFoundError):
-            pass
-        
-        return False
-    
-    def apply_filter(self) -> None:
-        """
-        Actualiza la visibilidad de los elementos según la función de filtro
-        """
-        if not self.is_visible_fn:
-            # Sin filtro - mostrar todo
-            self._show_all_items()
+
+        self._add_directory(base_item, self._base_path, rel_path="")
+
+    # ------------------------------------------------------------------
+    # PRIVATE HELPERS ----------------------------------------------------
+    # ------------------------------------------------------------------
+    def _prune_nonexistent_selections(self) -> None:
+        """Elimina de *self._selected_paths* los archivos que ya no existen."""
+        if self._base_path is None:
             return
-        
-        # Aplicar filtro recursivamente
-        root = self.tree_model.invisibleRootItem()
-        for i in range(root.rowCount()):
-            self._apply_filter_to_item(root.child(i))
-    
-    def _show_all_items(self) -> None:
-        """Muestra todos los elementos en el árbol"""
-        def show_recursive(item):
-            index = self.tree_model.indexFromItem(item)
-            self.tree_view.setRowHidden(index.row(), index.parent(), False)
-            
-            for i in range(item.rowCount()):
-                show_recursive(item.child(i))
-        
-        # Comenzar desde los elementos de primer nivel
-        root = self.tree_model.invisibleRootItem()
-        for i in range(root.rowCount()):
-            show_recursive(root.child(i))
-    
-    def _apply_filter_to_item(self, item: QStandardItem) -> bool:
-        """
-        Aplica el filtro a un elemento y sus hijos recursivamente
-        
-        Args:
-            item: Item al que aplicar el filtro
-            
-        Returns:
-            bool: True si el item o alguno de sus hijos es visible
-        """
-        # Obtener información del elemento
-        path = item.data(Qt.ItemDataRole.UserRole)
-        is_dir = item.hasChildren()
-        
-        # Procesar hijos primero
-        visible_children = False
-        if is_dir:
-            for i in range(item.rowCount()):
-                child_visible = self._apply_filter_to_item(item.child(i))
-                visible_children = visible_children or child_visible
-        
-        # Verificar si el elemento coincide con el filtro
-        matches = False
-        
-        # Los directorios con hijos visibles siempre se muestran
-        if is_dir and visible_children:
-            matches = True
-        elif self.is_visible_fn:
-            matches = self.is_visible_fn(path)
-        else:
-            matches = True  # Si no hay filtro, todo es visible
-        
-        return matches
-    
-    def _update_parent_check_state(self, item: QStandardItem) -> None:
-        """
-        Actualiza el estado de casilla de verificación del padre basado en sus hijos
-        
-        Args:
-            item: Elemento cuyo padre debe actualizarse
-        """
-        # Obtener el padre del elemento
-        parent = item.parent()
-        if not parent:
-            return  # No hay padre que actualizar
-        
-        # Contar estados de los hijos
-        total_children = parent.rowCount()
-        checked_children = 0
-        
-        for i in range(total_children):
-            child = parent.child(i)
-            if child.checkState() == Qt.CheckState.Checked:
-                checked_children += 1
-            elif child.checkState() == Qt.CheckState.PartiallyChecked:
-                # Si hay al menos un hijo parcialmente seleccionado,
-                # el padre también debe estarlo
-                parent.setCheckState(Qt.CheckState.PartiallyChecked)
-                # Continuar actualizando hacia arriba
-                self._update_parent_check_state(parent)
-                return
-        
-        # Establecer estado del padre según hijos completamente seleccionados
-        if checked_children == 0:
-            parent.setCheckState(Qt.CheckState.Unchecked)
-        elif checked_children == total_children:
-            parent.setCheckState(Qt.CheckState.Checked)
-        else:
-            parent.setCheckState(Qt.CheckState.PartiallyChecked)
-        
-        # Recursión para actualizar abuelos si es necesario
-        self._update_parent_check_state(parent)
-    
+
+        valid: Set[str] = set()
+        for rel in self._selected_paths:
+            if (self._base_path / rel).exists():
+                valid.add(rel)
+        self._selected_paths = valid
+
+    # ---------------------------------------------------------------
+    # MODEL CONSTRUCTION
+    # ---------------------------------------------------------------
+    def _add_directory(
+        self,
+        parent_item: QStandardItem,
+        abs_dir: Path,
+        *,
+        rel_path: str,
+    ) -> None:
+        try:
+            for name in sorted(os.listdir(abs_dir), key=str.lower):
+                child_abs = abs_dir / name
+                child_rel = str(Path(rel_path, name)) if rel_path else name
+
+                visible = self._is_visible(child_rel) if self._is_visible else True
+                if not visible and child_abs.is_dir():
+                    # Comprobar visibilidad de nietos
+                    visible = self._has_visible_descendants(child_abs)
+                if not visible:
+                    continue
+
+                item = QStandardItem(name)
+                item.setData(child_rel, Qt.ItemDataRole.UserRole)
+                item.setCheckable(True)
+                item.setCheckState(self._initial_state_for(child_rel))
+                parent_item.appendRow(item)
+
+                if child_abs.is_dir():
+                    self._add_directory(item, child_abs, rel_path=child_rel)
+        except PermissionError:
+            # Directorio inaccesible: se ignora.
+            pass
+
+    def _initial_state_for(self, rel_path: str) -> Qt.CheckState:
+        if rel_path in self._selected_paths:
+            return Qt.CheckState.Checked
+        if self._has_selected_descendants(rel_path):
+            return Qt.CheckState.PartiallyChecked
+        return Qt.CheckState.Unchecked
+
+    # ---------------------------------------------------------------
+    # VISIBILITY & SELECTION UTILITIES
+    # ---------------------------------------------------------------
+    def _has_visible_descendants(self, abs_dir: Path) -> bool:
+        if self._is_visible is None:
+            return False
+        for root, _dirs, files in os.walk(abs_dir):
+            for f in files:
+                rel = os.path.relpath(os.path.join(root, f), self._base_path)
+                if self._is_visible(rel):
+                    return True
+        return False
+
+    def _has_selected_descendants(self, rel_path: str) -> bool:
+        base = normalize_path(rel_path)
+        if base:
+            base += os.sep
+        for sel in self._selected_paths:
+            if normalize_path(sel).startswith(base):
+                return True
+        return False
+
+    # ------------------------------------------------------------------
+    # CHECKBOX HANDLERS -------------------------------------------------
+    # ------------------------------------------------------------------
     def handle_item_changed(self, item: QStandardItem) -> None:
-        """
-        Maneja los cambios en los checkboxes de los elementos
-        
-        Args:
-            item: Item que cambió
-        """
         if not item.isCheckable():
             return
-        
-        # Obtener información del item
-        path = item.data(Qt.ItemDataRole.UserRole)
-        check_state = item.checkState()
-        
-        # Aplicar el mismo estado a todos los hijos visibles
-        if item.hasChildren():
-            self._set_check_state_to_children(item, check_state)
-            
-        # Actualizar la lista de seleccionados
-        if check_state == Qt.CheckState.Checked:
-            self._add_path_and_children(path, item)
+
+        rel_path = item.data(Qt.ItemDataRole.UserRole)
+        state = item.checkState()
+
+        if state == Qt.CheckState.Checked:
+            self._add_path_recursive(rel_path, item)
+        elif state == Qt.CheckState.Unchecked:
+            self._remove_path_recursive(rel_path, item)
+
+        # Recalcular estados de ancestros
+        self._update_parent_state(item)
+
+    def _add_path_recursive(self, rel_path: str, item: QStandardItem) -> None:
+        self._selected_paths.add(rel_path)
+        for i in range(item.rowCount()):
+            child = item.child(i)
+            if child.checkState() != Qt.CheckState.Checked:
+                child.setCheckState(Qt.CheckState.Checked)
+            self._add_path_recursive(child.data(Qt.ItemDataRole.UserRole), child)
+
+    def _remove_path_recursive(self, rel_path: str, item: QStandardItem) -> None:
+        self._selected_paths.discard(rel_path)
+        for i in range(item.rowCount()):
+            child = item.child(i)
+            if child.checkState() != Qt.CheckState.Unchecked:
+                child.setCheckState(Qt.CheckState.Unchecked)
+            self._remove_path_recursive(child.data(Qt.ItemDataRole.UserRole), child)
+
+    def _update_parent_state(self, item: QStandardItem) -> None:
+        parent = item.parent()
+        if parent is None:
+            return
+        checked = sum(1 for i in range(parent.rowCount()) if parent.child(i).checkState() == Qt.CheckState.Checked)
+        partial = sum(1 for i in range(parent.rowCount()) if parent.child(i).checkState() == Qt.CheckState.PartiallyChecked)
+        if checked == parent.rowCount():
+            parent.setCheckState(Qt.CheckState.Checked)
+        elif checked == 0 and partial == 0:
+            parent.setCheckState(Qt.CheckState.Unchecked)
         else:
-            self._remove_path_and_children(path, item)
-        
-        # Actualizar el estado del padre
-        self._update_parent_check_state(item)
-    
-    def _set_check_state_to_children(self, parent_item: QStandardItem, state: Qt.CheckState) -> None:
-        """
-        Establece el mismo estado de selección a todos los hijos visibles
-        
-        Args:
-            parent_item: Item padre
-            state: Estado de selección a aplicar
-        """
-        for i in range(parent_item.rowCount()):
-            child = parent_item.child(i)
-            
-            # Verificar visibilidad según filtro
-            path = child.data(Qt.ItemDataRole.UserRole)
-            visible = True
-            if self.is_visible_fn:
-                visible = self.is_visible_fn(path)
-            
-            # Solo cambiar estado si es visible
-            if visible:
-                child.setCheckState(state)
-            
-            # Recursividad para los subhijos visibles
-            if child.hasChildren():
-                self._set_check_state_to_children(child, state)
-    
-    def _add_path_and_children(self, parent_path: str, parent_item: QStandardItem) -> None:
-        """
-        Añade la ruta del elemento y todos sus hijos al conjunto de seleccionados
-        
-        Args:
-            parent_path: Ruta del elemento padre
-            parent_item: Item padre
-        """
-        self.selected_paths.add(parent_path)
-        
-        for i in range(parent_item.rowCount()):
-            child = parent_item.child(i)
-            child_path = child.data(Qt.ItemDataRole.UserRole)
-            
-            # Verificar visibilidad según filtro
-            visible = True
-            if self.is_visible_fn:
-                visible = self.is_visible_fn(child_path)
-            
-            # Solo añadir si es visible
-            if visible:
-                self.selected_paths.add(child_path)
-                
-                # Recursividad para los subhijos visibles
-                if child.hasChildren():
-                    self._add_path_and_children(child_path, child)
-    
-    def _remove_path_and_children(self, parent_path: str, parent_item: QStandardItem) -> None:
-        """
-        Elimina la ruta del elemento y todos sus hijos del conjunto de seleccionados
-        
-        Args:
-            parent_path: Ruta del elemento padre
-            parent_item: Item padre
-        """
-        self.selected_paths.discard(parent_path)
-        
-        for i in range(parent_item.rowCount()):
-            child = parent_item.child(i)
-            child_path = child.data(Qt.ItemDataRole.UserRole)
-            
-            # Eliminar independientemente de la visibilidad
-            self.selected_paths.discard(child_path)
-            
-            # Recursividad para los subhijos
-            if child.hasChildren():
-                self._remove_path_and_children(child_path, child)
-    
+            parent.setCheckState(Qt.CheckState.PartiallyChecked)
+        self._update_parent_state(parent)
+
+    # ------------------------------------------------------------------
+    # OTHER PUBLIC UTILITIES -------------------------------------------
+    # ------------------------------------------------------------------
     def reset_selection(self) -> None:
-        """Reinicia todas las selecciones"""
-        # Limpiar conjunto de selecciones
-        self.selected_paths.clear()
-        
-        # Desmarcar todos los checkboxes
-        def uncheck_all(item):
-            item.setCheckState(Qt.CheckState.Unchecked)
-            for i in range(item.rowCount()):
-                uncheck_all(item.child(i))
-        
-        # Aplicar a todos los elementos
-        root = self.tree_model.invisibleRootItem()
+        self._selected_paths.clear()
+        root = self._model.invisibleRootItem()
         for i in range(root.rowCount()):
-            uncheck_all(root.child(i))
+            self._uncheck_all(root.child(i))
+
+    def _uncheck_all(self, item: QStandardItem) -> None:
+        item.setCheckState(Qt.CheckState.Unchecked)
+        for i in range(item.rowCount()):
+            self._uncheck_all(item.child(i))
